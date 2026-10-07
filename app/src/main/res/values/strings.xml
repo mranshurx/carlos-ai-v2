@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Carlos AI</string>
+    <string name="service_notification_title">Carlos AI Assistant</string>
+    <string name="service_notification_desc">Listening in background for "Hey Carlos"...</string>
+    <string name="tap_to_talk">Tap to speak with Carlos</string>
+    <string name="stop_service">Stop Listening</string>
+    <string name="carlos_ready">Carlos is ready. Say "Hey Carlos" or tap the orb.</string>
+    <string name="carlos_listening">Listening to your command...</string>
+    <string name="carlos_processing">Processing command...</string>
+</resources>

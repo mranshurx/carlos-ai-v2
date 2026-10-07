@@ -1,0 +1,6 @@
+{
+  "name": "Carlos AI",
+  "description": "Hands-free voice assistant that controls your phone with 'Hey Carlos' wake word, device automation, and Grok AI integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
