@@ -23,9 +23,6 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Decode debug keystore
         run: |
           if [ -f debug.keystore.base64 ]; then
@@ -37,6 +34,8 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK with Gradle
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Locate Generated APK
