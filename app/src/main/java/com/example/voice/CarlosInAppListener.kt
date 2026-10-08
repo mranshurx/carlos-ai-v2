@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
+import com.example.service.CarlosWakeWordService
 
 class CarlosInAppListener(private val context: Context) {
 
@@ -29,8 +30,10 @@ class CarlosInAppListener(private val context: Context) {
 
     fun startListening() {
         stopListening()
+        CarlosWakeWordService.pauseForExternalSpeech()
 
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            CarlosWakeWordService.resumeFromExternalSpeech()
             onErrorOccurred?.invoke("Speech recognition is not available on this device.")
             return
         }
@@ -123,5 +126,6 @@ class CarlosInAppListener(private val context: Context) {
         speechRecognizer = null
         _isListening.value = false
         _rmsLevel.value = 0f
+        CarlosWakeWordService.resumeFromExternalSpeech()
     }
 }

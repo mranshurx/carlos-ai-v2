@@ -64,6 +64,7 @@ import com.example.data.model.CarlosParsedAction
 import com.example.data.pref.CarlosPreferences
 import com.example.device.DeviceActionExecutor
 import com.example.engine.CarlosBrain
+import com.example.service.CarlosWakeWordService
 import com.example.ui.theme.CyberBlack
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberDark
@@ -104,6 +105,9 @@ class CarlosBottomHUDActivity : ComponentActivity() {
         ttsEngine = CarlosTtsEngine(this)
         inAppListener = CarlosInAppListener(this)
 
+        // Hand off microphone from background service to HUD
+        CarlosWakeWordService.pauseForExternalSpeech()
+
         setContent {
             MyApplicationTheme {
                 CarlosBottomHUDContent(
@@ -120,6 +124,7 @@ class CarlosBottomHUDActivity : ComponentActivity() {
     override fun onDestroy() {
         inAppListener.stopListening()
         ttsEngine.shutdown()
+        CarlosWakeWordService.resumeFromExternalSpeech()
         super.onDestroy()
     }
 }
