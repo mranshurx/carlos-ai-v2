@@ -1,6 +1,7 @@
 package com.example.service
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -23,6 +24,7 @@ import androidx.core.app.NotificationCompat
 import com.example.CarlosApp
 import com.example.MainActivity
 import com.example.R
+import com.example.data.model.CarlosActionType
 import com.example.data.model.CarlosCommandLog
 import com.example.data.pref.CarlosPreferences
 import com.example.device.DeviceActionExecutor
@@ -36,13 +38,9 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * 24/7 Background Foreground Service with continuous microphone capture.
- * Features:
- * - PARTIAL_WAKE_LOCK to prevent CPU sleep when phone is locked.
- * - Active Keep-Alive Watchdog to resurrect speech recognition automatically if it ever stalls.
- * - Instant re-arm (50ms) on speech timeouts or silence.
- * - Auto-recreation on errors (ERROR_RECOGNIZER_BUSY, ERROR_CLIENT, etc.).
- * - Safe mic handoff when bottom HUD or in-app speech is active.
+ * 24/7 Background Voice Assistant Service.
+ * Runs continuously in foreground with microphone access.
+ * Directly executes phone commands on voice in the background without needing activity launches.
  */
 class CarlosWakeWordService : Service() {
 
@@ -56,15 +54,12 @@ class CarlosWakeWordService : Service() {
             private set
 
         private var activeServiceInstance: CarlosWakeWordService? = null
-        private var isExternalMicActive = false
 
         fun pauseForExternalSpeech() {
-            isExternalMicActive = true
             activeServiceInstance?.pauseBackgroundListening()
         }
 
         fun resumeFromExternalSpeech() {
-            isExternalMicActive = false
             activeServiceInstance?.resumeBackgroundListening()
         }
     }
@@ -76,24 +71,35 @@ class CarlosWakeWordService : Service() {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
+    private var isPaused = false
     private var wakeLock: PowerManager.WakeLock? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var lastAudioActivityTimestamp = System.currentTimeMillis()
-    private var consecutiveErrors = 0
+    private var isAwaitingCommand = false
+    private var awaitingCommandExpiry = 0L
 
     // Watchdog to guarantee 24/7 uninterrupted listening
     private val watchdogRunnable = object : Runnable {
         override fun run() {
-            if (isServiceRunning && !isExternalMicActive) {
-                val elapsed = System.currentTimeMillis() - lastAudioActivityTimestamp
-                // If recognizer is not listening or received no callbacks for over 6 seconds, revive it immediately!
-                if (!isListening || elapsed > 6500L) {
-                    Log.d(TAG, "Watchdog detected inactive mic (isListening=$isListening, elapsed=${elapsed}ms). Reviving 24/7 listener...")
-                    recreateRecognizerAndListen()
+            if (isServiceRunning && !isPaused) {
+                val now = System.currentTimeMillis()
+                val elapsed = now - lastAudioActivityTimestamp
+
+                // Check command awaiting timeout
+                if (isAwaitingCommand && now > awaitingCommandExpiry) {
+                    isAwaitingCommand = false
+                    updateNotificationContent("Listening for '${prefs.wakeWord}'")
+                }
+
+                // If recognizer is not listening or received no callbacks for over 7 seconds, revive it immediately!
+                if (!isListening || elapsed > 7000L) {
+                    Log.d(TAG, "Watchdog reviving listener (isListening=$isListening, elapsed=${elapsed}ms)...")
+                    destroyRecognizer()
+                    startListeningInternal()
                 }
             }
-            mainHandler.postDelayed(this, 3000L)
+            mainHandler.postDelayed(this, 3500L)
         }
     }
 
@@ -106,7 +112,7 @@ class CarlosWakeWordService : Service() {
         activeServiceInstance = this
 
         acquireWakeLock()
-        mainHandler.postDelayed(watchdogRunnable, 3000L)
+        mainHandler.postDelayed(watchdogRunnable, 3500L)
     }
 
     private fun acquireWakeLock() {
@@ -117,9 +123,9 @@ class CarlosWakeWordService : Service() {
                 "CarlosAI:ContinuousVoiceWakeLock"
             )?.apply {
                 setReferenceCounted(false)
-                acquire()
+                acquire(10 * 60 * 1000L /* 10 minutes, refreshed continuously */)
             }
-            Log.d(TAG, "Partial WakeLock acquired for 24/7 background voice listening")
+            Log.d(TAG, "WakeLock acquired for background voice processing")
         } catch (e: Exception) {
             Log.w(TAG, "Could not acquire WakeLock: ${e.message}")
         }
@@ -130,9 +136,7 @@ class CarlosWakeWordService : Service() {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error releasing WakeLock: ${e.message}")
-        }
+        } catch (_: Exception) {}
         wakeLock = null
     }
 
@@ -150,6 +154,20 @@ class CarlosWakeWordService : Service() {
     }
 
     private fun startForegroundNotification() {
+        val notification = buildForegroundNotification("Listening for '${prefs.wakeWord}'")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun buildForegroundNotification(contentText: String): Notification {
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -170,29 +188,24 @@ class CarlosWakeWordService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val wakeWordDisplay = prefs.wakeWord.ifEmpty { "Hey Carlos" }
-
-        val notification: Notification = NotificationCompat.Builder(this, CarlosApp.CHANNEL_ID_WAKE_WORD)
-            .setContentTitle("Carlos AI Active (Mic Always On 24/7)")
-            .setContentText("Listening for '$wakeWordDisplay' - Ready for commands anytime")
+        return NotificationCompat.Builder(this, CarlosApp.CHANNEL_ID_WAKE_WORD)
+            .setContentTitle("Carlos AI Assistant Active")
+            .setContentText(contentText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingTapIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(android.R.drawable.ic_media_pause, "Stop Listening", pendingStopIntent)
-            .addAction(android.R.drawable.ic_btn_speak_now, "Talk to Carlos", pendingTapIntent)
+            .addAction(android.R.drawable.ic_btn_speak_now, "Open Carlos", pendingTapIntent)
             .build()
+    }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+    private fun updateNotificationContent(text: String) {
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.notify(NOTIFICATION_ID, buildForegroundNotification(text))
+        } catch (_: Exception) {}
     }
 
     private fun startContinuousWakeWordListening() {
@@ -201,12 +214,12 @@ class CarlosWakeWordService : Service() {
             return
         }
 
-        recreateRecognizerAndListen()
+        startListeningInternal()
     }
 
     fun pauseBackgroundListening() {
-        mainHandler.removeCallbacksAndMessages(null)
-        mainHandler.postDelayed(watchdogRunnable, 3000L)
+        isPaused = true
+        mainHandler.removeCallbacks(restartListeningRunnable)
         try {
             speechRecognizer?.cancel()
         } catch (_: Exception) {}
@@ -214,70 +227,53 @@ class CarlosWakeWordService : Service() {
     }
 
     fun resumeBackgroundListening() {
+        isPaused = false
         lastAudioActivityTimestamp = System.currentTimeMillis()
-        recreateRecognizerAndListen()
+        scheduleQuickRestart(100L)
     }
 
     private fun buildRecognizerIntent(): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-            // Keep continuous dictation active without premature silence cuts
-            putExtra("android.speech.extra.DICTATION_MODE", true)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 3000L)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            }
         }
     }
 
-    private fun recreateRecognizerAndListen() {
-        if (!isServiceRunning || isExternalMicActive) return
-
-        destroyRecognizer()
+    private fun startListeningInternal() {
+        if (!isServiceRunning || isPaused) return
 
         try {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-                setRecognitionListener(createRecognitionListener())
+            if (speechRecognizer == null) {
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                    setRecognitionListener(createRecognitionListener())
+                }
             }
+
+            speechRecognizer?.cancel()
             speechRecognizer?.startListening(buildRecognizerIntent())
             isListening = true
             lastAudioActivityTimestamp = System.currentTimeMillis()
-            consecutiveErrors = 0
-            Log.d(TAG, "SpeechRecognizer created and actively listening 24/7")
+            Log.d(TAG, "SpeechRecognizer listening actively")
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting SpeechRecognizer: ${e.message}")
+            Log.e(TAG, "Error in startListeningInternal: ${e.message}")
             isListening = false
+            destroyRecognizer()
             scheduleQuickRestart(400L)
         }
     }
 
     private fun scheduleQuickRestart(delayMs: Long) {
-        if (!isServiceRunning || isExternalMicActive) return
+        if (!isServiceRunning || isPaused) return
         mainHandler.removeCallbacks(restartListeningRunnable)
         mainHandler.postDelayed(restartListeningRunnable, delayMs)
     }
 
     private val restartListeningRunnable = Runnable {
-        if (isServiceRunning && !isExternalMicActive) {
-            try {
-                if (speechRecognizer == null) {
-                    recreateRecognizerAndListen()
-                } else {
-                    speechRecognizer?.cancel()
-                    speechRecognizer?.startListening(buildRecognizerIntent())
-                    isListening = true
-                    lastAudioActivityTimestamp = System.currentTimeMillis()
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Quick restart failed, recreating recognizer: ${e.message}")
-                recreateRecognizerAndListen()
-            }
+        if (isServiceRunning && !isPaused) {
+            startListeningInternal()
         }
     }
 
@@ -285,7 +281,6 @@ class CarlosWakeWordService : Service() {
         override fun onReadyForSpeech(params: Bundle?) {
             isListening = true
             lastAudioActivityTimestamp = System.currentTimeMillis()
-            consecutiveErrors = 0
         }
 
         override fun onBeginningOfSpeech() {
@@ -293,7 +288,7 @@ class CarlosWakeWordService : Service() {
         }
 
         override fun onRmsChanged(rmsdB: Float) {
-            if (rmsdB > 1.5f) {
+            if (rmsdB > 1.2f) {
                 lastAudioActivityTimestamp = System.currentTimeMillis()
             }
         }
@@ -310,26 +305,25 @@ class CarlosWakeWordService : Service() {
         override fun onError(error: Int) {
             isListening = false
             lastAudioActivityTimestamp = System.currentTimeMillis()
-            consecutiveErrors++
 
-            Log.d(TAG, "Recognition onError code=$error (consecutive=$consecutiveErrors)")
+            Log.d(TAG, "RecognitionListener onError: $error")
 
             when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH,
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                    // Normal silence timeout: re-arm mic immediately (50ms)
+                    // Normal silence timeout: restart listening immediately (50ms)
                     scheduleQuickRestart(50L)
                 }
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
                 SpeechRecognizer.ERROR_CLIENT,
                 SpeechRecognizer.ERROR_AUDIO,
                 SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> {
-                    // Critical speech engine reset required
-                    mainHandler.postDelayed({ recreateRecognizerAndListen() }, 150L)
+                    // Reset recognizer cleanly
+                    destroyRecognizer()
+                    scheduleQuickRestart(200L)
                 }
                 else -> {
-                    val delay = if (consecutiveErrors > 3) 1000L else 200L
-                    mainHandler.postDelayed({ recreateRecognizerAndListen() }, delay)
+                    scheduleQuickRestart(200L)
                 }
             }
         }
@@ -340,7 +334,7 @@ class CarlosWakeWordService : Service() {
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
 
             if (!matches.isNullOrEmpty()) {
-                handleSpeechResults(matches)
+                handleSpeechMatches(matches)
             } else {
                 scheduleQuickRestart(50L)
             }
@@ -352,13 +346,14 @@ class CarlosWakeWordService : Service() {
 
             if (!partials.isNullOrEmpty()) {
                 for (phrase in partials) {
-                    val (matched, command) = brain.matchWakeWord(phrase, prefs.wakeWord)
-                    if (matched) {
+                    val (wakeMatched, command) = brain.matchWakeWord(phrase, prefs.wakeWord)
+                    if (wakeMatched && command.isNotBlank()) {
+                        // User said wake word + command in real-time partial speech! Execute immediately
                         try {
                             speechRecognizer?.cancel()
                         } catch (_: Exception) {}
                         isListening = false
-                        onWakeWordDetected(phrase, command)
+                        executeDetectedCommand(command, phrase)
                         return
                     }
                 }
@@ -368,73 +363,95 @@ class CarlosWakeWordService : Service() {
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
-    private fun handleSpeechResults(matches: List<String>) {
-        var wakeMatched = false
-        var commandFound = ""
-        var fullSpeech = ""
+    private fun handleSpeechMatches(matches: List<String>) {
+        serviceScope.launch {
+            for (phrase in matches) {
+                val cleanPhrase = phrase.trim()
+                if (cleanPhrase.isBlank()) continue
 
-        for (phrase in matches) {
-            val (matched, command) = brain.matchWakeWord(phrase, prefs.wakeWord)
-            if (matched) {
-                wakeMatched = true
-                commandFound = command
-                fullSpeech = phrase
-                break
+                // 1. Check if wake word is present
+                val (wakeMatched, commandPart) = brain.matchWakeWord(cleanPhrase, prefs.wakeWord)
+
+                if (wakeMatched) {
+                    if (commandPart.isNotBlank()) {
+                        // User said: "Hey Carlos turn on flashlight" in one go!
+                        executeDetectedCommand(commandPart, cleanPhrase)
+                        return@launch
+                    } else {
+                        // User said: "Hey Carlos" alone!
+                        triggerHaptic()
+                        isAwaitingCommand = true
+                        awaitingCommandExpiry = System.currentTimeMillis() + 8000L
+                        updateNotificationContent("Carlos: Listening for your command...")
+                        scheduleQuickRestart(50L)
+                        return@launch
+                    }
+                }
+
+                // 2. If in AWAITING_COMMAND mode (user said "Hey Carlos" previously):
+                if (isAwaitingCommand && System.currentTimeMillis() <= awaitingCommandExpiry) {
+                    isAwaitingCommand = false
+                    updateNotificationContent("Listening for '${prefs.wakeWord}'")
+                    executeDetectedCommand(cleanPhrase, cleanPhrase)
+                    return@launch
+                }
+
+                // 3. Or check if the phrase is a direct phone automation command:
+                // (e.g. "turn on flashlight", "turn off flashlight", "call Mom", "open WhatsApp", "open camera")
+                val directAction = brain.processCommand(cleanPhrase)
+                if (directAction.actionType != CarlosActionType.CONVERSATIONAL &&
+                    directAction.actionType != CarlosActionType.UNKNOWN) {
+                    executeDetectedCommand(cleanPhrase, cleanPhrase)
+                    return@launch
+                }
             }
-        }
 
-        if (wakeMatched) {
-            onWakeWordDetected(fullSpeech, commandFound)
-        } else {
+            // No command recognized, re-arm listening immediately
             scheduleQuickRestart(50L)
         }
     }
 
-    private fun onWakeWordDetected(fullSpeech: String, immediateCommand: String) {
+    private fun executeDetectedCommand(command: String, rawSpeech: String) {
         triggerHaptic()
+        isAwaitingCommand = false
+        updateNotificationContent("Executing: $command")
 
         serviceScope.launch {
-            if (immediateCommand.isNotBlank()) {
-                // User said "Hey Carlos turn off my flashlight" in one breath!
-                val parsed = brain.processCommand(immediateCommand)
-                if (prefs.isTtsEnabled) {
-                    ttsEngine.speak(parsed.speech)
-                }
+            val parsed = brain.processCommand(command)
 
-                val (success, detail) = DeviceActionExecutor.executeParsedAction(
-                    applicationContext,
-                    parsed.actionType,
-                    parsed.target,
-                    parsed.params
-                )
-
-                prefs.saveCommandLog(
-                    CarlosCommandLog(
-                        userInput = immediateCommand,
-                        actionType = parsed.actionType,
-                        target = parsed.target,
-                        details = detail,
-                        responseSpeech = parsed.speech,
-                        isSuccess = success,
-                        source = "Background Voice ('${prefs.wakeWord}')"
-                    )
-                )
-
-                sendBroadcast(Intent("com.example.carlos.COMMAND_EXECUTED"))
-
-                // Resume continuous 24/7 listening after brief command execution pause
-                mainHandler.postDelayed({
-                    recreateRecognizerAndListen()
-                }, 1200L)
-            } else {
-                // User said only "Hey Carlos": launch bottom HUD silently
-                val bottomHudIntent = Intent(applicationContext, com.example.CarlosBottomHUDActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                applicationContext.startActivity(bottomHudIntent)
-
-                // The bottom HUD manages its own mic. As soon as HUD dismisses, resumeFromExternalSpeech() takes over!
+            // Speak brief confirmation if enabled
+            if (prefs.isTtsEnabled && parsed.speech.isNotBlank()) {
+                ttsEngine.speak(parsed.speech)
             }
+
+            // Execute the device action (flashlight, call, WhatsApp, camera, app, etc.)
+            val (success, detail) = DeviceActionExecutor.executeParsedAction(
+                applicationContext,
+                parsed.actionType,
+                parsed.target,
+                parsed.params
+            )
+
+            // Save log
+            prefs.saveCommandLog(
+                CarlosCommandLog(
+                    userInput = command,
+                    actionType = parsed.actionType,
+                    target = parsed.target,
+                    details = detail,
+                    responseSpeech = parsed.speech,
+                    isSuccess = success,
+                    source = "Background Voice ('$rawSpeech')"
+                )
+            )
+
+            sendBroadcast(Intent("com.example.carlos.COMMAND_EXECUTED"))
+
+            // Reset notification and resume listening after command completes
+            mainHandler.postDelayed({
+                updateNotificationContent("Listening for '${prefs.wakeWord}'")
+                startListeningInternal()
+            }, 1200L)
         }
     }
 
@@ -464,6 +481,7 @@ class CarlosWakeWordService : Service() {
             speechRecognizer?.destroy()
         } catch (_: Exception) {}
         speechRecognizer = null
+        isListening = false
     }
 
     override fun onDestroy() {
