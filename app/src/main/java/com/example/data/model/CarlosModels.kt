@@ -22,6 +22,13 @@ enum class CarlosState {
     ERROR
 }
 
+sealed interface CarlosAuthState {
+    data object Loading : CarlosAuthState
+    data class Authenticated(val key: String) : CarlosAuthState
+    data class RequiresKey(val errorMessage: String? = null) : CarlosAuthState
+    data object Verifying : CarlosAuthState
+}
+
 data class CarlosCommandLog(
     val id: String = java.util.UUID.randomUUID().toString(),
     val userInput: String,

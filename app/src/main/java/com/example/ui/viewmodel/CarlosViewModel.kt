@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.example.data.auth.CarlosKeyManager
+import com.example.data.auth.KeyValidationResult
+import com.example.data.model.CarlosAuthState
 import kotlinx.coroutines.withContext
 
 class CarlosViewModel(application: Application) : AndroidViewModel(application) {
@@ -35,6 +38,10 @@ class CarlosViewModel(application: Application) : AndroidViewModel(application) 
     private val brain = CarlosBrain(application)
     private val ttsEngine = CarlosTtsEngine(application)
     private val inAppListener = CarlosInAppListener(application)
+    private val keyManager = CarlosKeyManager(application)
+
+    private val _keyAuthState = MutableStateFlow<CarlosAuthState>(CarlosAuthState.Loading)
+    val keyAuthState: StateFlow<CarlosAuthState> = _keyAuthState.asStateFlow()
 
     private val _carlosState = MutableStateFlow(CarlosState.IDLE)
     val carlosState: StateFlow<CarlosState> = _carlosState.asStateFlow()
@@ -109,6 +116,74 @@ class CarlosViewModel(application: Application) : AndroidViewModel(application) 
 
         // Load installed apps in background
         loadInstalledApps()
+
+        // Check key authentication status
+        checkInitialKey()
+    }
+
+    fun checkInitialKey() {
+        val saved = keyManager.savedKey
+        if (saved.isBlank()) {
+            _keyAuthState.value = CarlosAuthState.RequiresKey()
+        } else {
+            _keyAuthState.value = CarlosAuthState.Authenticated(saved)
+            verifySavedKeyInBackground()
+        }
+    }
+
+    fun verifyEnteredKey(candidateKey: String) {
+        val cleanKey = candidateKey.trim()
+        if (cleanKey.isBlank()) {
+            _keyAuthState.value = CarlosAuthState.RequiresKey("Please enter an access key.")
+            return
+        }
+
+        _keyAuthState.value = CarlosAuthState.Verifying
+
+        viewModelScope.launch {
+            when (val result = keyManager.validateKeyOnline(cleanKey)) {
+                is KeyValidationResult.Success -> {
+                    _keyAuthState.value = CarlosAuthState.Authenticated(result.key)
+                    _lastResponseText.value = "Access Key Verified! Welcome to Carlos AI."
+                    if (prefs.isTtsEnabled) {
+                        ttsEngine.speak("Access key verified. Welcome to Carlos AI!")
+                    }
+                }
+                is KeyValidationResult.InvalidKey -> {
+                    _keyAuthState.value = CarlosAuthState.RequiresKey(result.message)
+                }
+                is KeyValidationResult.NetworkError -> {
+                    _keyAuthState.value = CarlosAuthState.RequiresKey("Network Error: ${result.message}")
+                }
+            }
+        }
+    }
+
+    fun verifySavedKeyInBackground() {
+        viewModelScope.launch {
+            when (val result = keyManager.verifyExistingSavedKey()) {
+                is KeyValidationResult.Success -> {
+                    _keyAuthState.value = CarlosAuthState.Authenticated(result.key)
+                }
+                is KeyValidationResult.InvalidKey -> {
+                    _keyAuthState.value = CarlosAuthState.RequiresKey(result.message)
+                    _lastResponseText.value = result.message
+                    if (prefs.isTtsEnabled) {
+                        ttsEngine.speak("Access key was updated online. Please enter the new key.")
+                    }
+                }
+                is KeyValidationResult.NetworkError -> {
+                    if (keyManager.savedKey.isBlank()) {
+                        _keyAuthState.value = CarlosAuthState.RequiresKey("Could not verify key online. Please connect to the internet.")
+                    }
+                }
+            }
+        }
+    }
+
+    fun logoutKey() {
+        keyManager.clearSavedKey()
+        _keyAuthState.value = CarlosAuthState.RequiresKey("Logged out. Please enter your access key.")
     }
 
     fun loadInstalledApps() {

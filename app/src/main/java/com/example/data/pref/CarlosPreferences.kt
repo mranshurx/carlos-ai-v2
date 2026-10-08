@@ -65,6 +65,14 @@ class CarlosPreferences(context: Context) {
         get() = prefs.getFloat(KEY_TTS_PITCH, 1.0f)
         set(value) = prefs.edit().putFloat(KEY_TTS_PITCH, value).apply()
 
+    var savedUserKey: String
+        get() = prefs.getString("saved_user_key", "") ?: ""
+        set(value) = prefs.edit().putString("saved_user_key", value.trim()).apply()
+
+    fun clearSavedKey() {
+        prefs.edit().remove("saved_user_key").apply()
+    }
+
     fun saveCommandLog(log: CarlosCommandLog) {
         val currentLogs = getCommandLogs().toMutableList()
         currentLogs.add(0, log)
