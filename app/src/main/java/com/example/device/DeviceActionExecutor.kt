@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.data.model.CarlosActionType
 import com.example.data.model.InstalledAppInfo
@@ -142,10 +143,74 @@ object DeviceActionExecutor {
         }
     }
 
+    fun findContactPhoneNumber(context: Context, nameQuery: String): String? {
+        val hasContactsPermission = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasContactsPermission) {
+            Log.w("DeviceActionExecutor", "READ_CONTACTS permission not granted. Cannot lookup $nameQuery")
+            return null
+        }
+
+        val contentResolver = context.contentResolver
+        val uri = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val projection = arrayOf(
+            android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER,
+            android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
+        )
+
+        var bestMatchNumber: String? = null
+        var bestMatchExact = false
+
+        try {
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                val numberIndex = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val nameIndex = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+
+                if (numberIndex != -1 && nameIndex != -1) {
+                    val targetLower = nameQuery.trim().lowercase()
+
+                    while (cursor.moveToNext()) {
+                        val contactName = cursor.getString(nameIndex).orEmpty()
+                        val contactNameLower = contactName.trim().lowercase()
+                        val phoneNumber = cursor.getString(numberIndex)
+
+                        if (contactNameLower == targetLower) {
+                            bestMatchNumber = phoneNumber
+                            bestMatchExact = true
+                            break
+                        } else if (!bestMatchExact && (contactNameLower.contains(targetLower) || targetLower.contains(contactNameLower))) {
+                            bestMatchNumber = phoneNumber
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("DeviceActionExecutor", "Error querying contacts: ${e.message}")
+        }
+
+        return bestMatchNumber
+    }
+
     fun makePhoneCall(context: Context, recipient: String): Pair<Boolean, String> {
-        val cleanNumber = recipient.replace("[^0-9+*#]".toRegex(), "")
+        var finalNumber: String? = null
+        var contactNameMatched: String? = null
+
+        // If recipient contains any letters, treat it as a contact name lookup!
+        if (recipient.any { it.isLetter() }) {
+            finalNumber = findContactPhoneNumber(context, recipient)
+            if (finalNumber != null) {
+                contactNameMatched = recipient
+            }
+        } else {
+            finalNumber = recipient.replace("[^0-9+*#]".toRegex(), "")
+        }
+
         return try {
-            if (cleanNumber.isNotEmpty()) {
+            if (!finalNumber.isNullOrEmpty()) {
+                val cleanNumber = finalNumber.replace("[^0-9+*#]".toRegex(), "")
                 val hasCallPermission = ContextCompat.checkSelfPermission(
                     context,
                     android.Manifest.permission.CALL_PHONE
@@ -156,21 +221,25 @@ object DeviceActionExecutor {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                 } else {
-                    // Safe dialer fallback (doesn't crash if permission not granted)
                     Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanNumber")).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                 }
                 context.startActivity(intent)
-                val status = if (hasCallPermission) "Calling $cleanNumber" else "Opening dialer for $cleanNumber"
+
+                val displayTarget = contactNameMatched ?: cleanNumber
+                val status = if (hasCallPermission) "Calling $displayTarget" else "Opening dialer for $displayTarget"
                 Pair(true, status)
             } else {
-                // Just open dialer
-                val intent = Intent(Intent.ACTION_DIAL).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (recipient.any { it.isLetter() }) {
+                    Pair(false, "Could not find a contact named '$recipient' in your contacts book.")
+                } else {
+                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    Pair(true, "Opening phone dialer")
                 }
-                context.startActivity(intent)
-                Pair(true, "Opening phone dialer")
             }
         } catch (e: Exception) {
             Pair(false, "Could not place call: ${e.message}")

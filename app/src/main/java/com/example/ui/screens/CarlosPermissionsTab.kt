@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContactPhone
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Logout
@@ -112,6 +113,12 @@ fun CarlosPermissionsTab(
         )
     }
 
+    var hasContactsPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -149,6 +156,12 @@ fun CarlosPermissionsTab(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCallPermission = granted
+    }
+
+    val contactsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasContactsPermission = granted
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -346,6 +359,18 @@ fun CarlosPermissionsTab(
             iconTint = CyberEmerald,
             isGranted = hasCallPermission,
             onGrantClick = { callLauncher.launch(Manifest.permission.CALL_PHONE) }
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 4b. Contacts Access
+        PermissionRowCard(
+            title = "Contacts Directory Access",
+            description = "Enables hands-free calling by name (e.g. \"Call Mom\"). Without this, only direct number dialing works.",
+            icon = Icons.Default.ContactPhone,
+            iconTint = NeonPurple,
+            isGranted = hasContactsPermission,
+            onGrantClick = { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) }
         )
 
         Spacer(modifier = Modifier.height(10.dp))
