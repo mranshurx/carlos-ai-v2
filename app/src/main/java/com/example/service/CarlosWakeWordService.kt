@@ -277,12 +277,6 @@ class CarlosWakeWordService : Service() {
                 // Broadcast update so open UI refreshes
                 sendBroadcast(Intent("com.example.carlos.COMMAND_EXECUTED"))
             } else {
-                // User said only "Hey Carlos"! Acknowledge and prompt for command
-                val reply = "Yes, I'm here! What do you need?"
-                if (prefs.isTtsEnabled) {
-                    ttsEngine.speak(reply)
-                }
-
                 // Launch compact Bottom HUD box at the bottom instead of opening the full app!
                 val bottomHudIntent = Intent(applicationContext, com.example.CarlosBottomHUDActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
