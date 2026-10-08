@@ -68,7 +68,6 @@ import com.example.ui.viewmodel.CarlosViewModel
 enum class CarlosNavTab(val title: String, val icon: ImageVector) {
     VOICE("Voice", Icons.Default.Mic),
     CONTROLS("Controls", Icons.Default.Smartphone),
-    GROK("Grok AI", Icons.Default.SmartToy),
     SETUP("Setup", Icons.Default.Security),
     HISTORY("History", Icons.Default.History)
 }
@@ -230,9 +229,8 @@ fun CarlosMainScreen(
             when (selectedTabIndex) {
                 0 -> CarlosVoiceTab(viewModel = viewModel)
                 1 -> CarlosActionsTab(viewModel = viewModel)
-                2 -> CarlosGrokTab(viewModel = viewModel)
-                3 -> CarlosPermissionsTab(viewModel = viewModel)
-                4 -> CarlosHistoryTab(viewModel = viewModel)
+                2 -> CarlosPermissionsTab(viewModel = viewModel)
+                3 -> CarlosHistoryTab(viewModel = viewModel)
             }
         }
     }

@@ -210,7 +210,7 @@ fun CarlosKeyAuthScreen(
                 OutlinedTextField(
                     value = keyInput,
                     onValueChange = { keyInput = it },
-                    placeholder = { Text("e.g. ANSHU-ON-TOP", color = TextSecondary) },
+                    placeholder = { Text("Enter Access Key", color = TextSecondary) },
                     singleLine = true,
                     enabled = !isVerifying,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -319,43 +319,6 @@ fun CarlosKeyAuthScreen(
                         Text("Verify & Unlock Carlos AI", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                 }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Cloud Server Source Details Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = CyberSurface),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CyberBorder))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = "Cloud Source",
-                        tint = CyberEmerald,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Real-Time Cloud Key Source",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "• Server URL:\nhttps://raw.githubusercontent.com/mranshurx/carlos-ai-v2/refs/heads/main/key.txt\n\n• Verified on every app launch in background.\n• If the key is updated on GitHub, access is refreshed immediately.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                    fontSize = 11.sp
-                )
             }
         }
 
