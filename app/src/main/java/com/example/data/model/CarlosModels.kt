@@ -9,6 +9,7 @@ enum class CarlosActionType(val displayName: String, val iconDescription: String
     TOGGLE_FLASHLIGHT("Flashlight", "Turns device torch on or off"),
     CHECK_BATTERY("Battery Status", "Checks battery level and charging"),
     DEVICE_SETTINGS("System Settings", "Opens device settings (Wi-Fi, Bluetooth, etc.)"),
+    SET_ALARM("Set Alarm", "Sets device clock alarm"),
     CONVERSATIONAL("Carlos AI Thought", "Natural language response via Grok AI"),
     UNKNOWN("Command", "General phone command")
 }

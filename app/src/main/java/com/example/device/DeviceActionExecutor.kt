@@ -108,10 +108,20 @@ object DeviceActionExecutor {
         return Pair(false, "Could not find an installed app matching '$appQuery'")
     }
 
-    fun sendWhatsAppMessage(context: Context, phone: String, message: String): Pair<Boolean, String> {
+    fun sendWhatsAppMessage(context: Context, recipientOrPhone: String, message: String): Pair<Boolean, String> {
         return try {
-            val cleanPhone = phone.replace("[^0-9+]".toRegex(), "")
-            val encodedMessage = Uri.encode(message)
+            var finalNumber: String? = null
+            var contactName: String? = null
+
+            if (recipientOrPhone.any { it.isLetter() }) {
+                contactName = recipientOrPhone.trim()
+                finalNumber = findContactPhoneNumber(context, contactName)
+            } else {
+                finalNumber = recipientOrPhone
+            }
+
+            val cleanPhone = finalNumber?.replace("[^0-9+]".toRegex(), "").orEmpty()
+            val encodedMessage = Uri.encode(message.ifEmpty { "Hello from Carlos AI" })
 
             val uri = if (cleanPhone.isNotEmpty()) {
                 Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage")
@@ -129,17 +139,57 @@ object DeviceActionExecutor {
             val activities = pm.queryIntentActivities(intent, 0)
             if (activities.isNotEmpty()) {
                 context.startActivity(intent)
-                Pair(true, "Opening WhatsApp to send your message.")
+                val status = if (!contactName.isNullOrEmpty() && cleanPhone.isNotEmpty()) {
+                    "Opening WhatsApp for $contactName."
+                } else if (!contactName.isNullOrEmpty()) {
+                    "Opening WhatsApp for $contactName."
+                } else {
+                    "Opening WhatsApp."
+                }
+                Pair(true, status)
             } else {
                 // Try WhatsApp Business or browser fallback
                 val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(fallbackIntent)
-                Pair(true, "Opening WhatsApp link.")
+                Pair(true, "Opening WhatsApp.")
             }
         } catch (e: Exception) {
             Pair(false, "Failed to send WhatsApp message: ${e.message}")
+        }
+    }
+
+    fun setAlarm(
+        context: Context,
+        hour: Int,
+        minute: Int,
+        message: String = "Carlos Alarm",
+        skipUi: Boolean = false
+    ): Pair<Boolean, String> {
+        return try {
+            val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+                putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, message)
+                putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, skipUi)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            val displayHour = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+            val amPm = if (hour < 12) "AM" else "PM"
+            val displayMinute = String.format(java.util.Locale.US, "%02d", minute)
+            Pair(true, "Alarm set for $displayHour:$displayMinute $amPm.")
+        } catch (e: Exception) {
+            try {
+                val clockIntent = Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(clockIntent)
+                Pair(true, "Opening clock alarms.")
+            } catch (ex: Exception) {
+                Pair(false, "Could not set alarm: ${ex.message}")
+            }
         }
     }
 
@@ -353,6 +403,12 @@ object DeviceActionExecutor {
                     else -> null
                 }
                 toggleFlashlight(context, state)
+            }
+            CarlosActionType.SET_ALARM -> {
+                val hour = params["hour"]?.toIntOrNull() ?: 7
+                val minute = params["minute"]?.toIntOrNull() ?: 0
+                val message = params["message"] ?: target.ifEmpty { "Carlos Alarm" }
+                setAlarm(context, hour, minute, message)
             }
             CarlosActionType.CHECK_BATTERY -> getBatteryStatus(context)
             CarlosActionType.DEVICE_SETTINGS -> openSettings(context, target.ifEmpty { "general" })

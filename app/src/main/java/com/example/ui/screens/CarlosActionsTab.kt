@@ -28,12 +28,14 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Launch
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -87,6 +89,10 @@ fun CarlosActionsTab(
     var whatsappRecipient by remember { mutableStateOf("") }
     var whatsappMessage by remember { mutableStateOf("") }
     var callNumber by remember { mutableStateOf("") }
+    var alarmHour by remember { mutableStateOf("7") }
+    var alarmMinute by remember { mutableStateOf("30") }
+    var alarmAmPm by remember { mutableStateOf("AM") }
+    var alarmLabel by remember { mutableStateOf("Wake Up") }
     var appSearchQuery by remember { mutableStateOf("") }
 
     val filteredApps = remember(installedApps, appSearchQuery) {
@@ -150,7 +156,7 @@ fun CarlosActionsTab(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "Voice: \"Hey Carlos, send message to [number] saying...\"",
+                                text = "Voice: \"Hey Carlos, send a whatsapp message to Rahul...\"",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = CyberEmerald
                             )
@@ -162,8 +168,8 @@ fun CarlosActionsTab(
                     OutlinedTextField(
                         value = whatsappRecipient,
                         onValueChange = { whatsappRecipient = it },
-                        label = { Text("Phone Number / Contact") },
-                        placeholder = { Text("+1234567890 or 9876543210") },
+                        label = { Text("Contact Name or Phone Number") },
+                        placeholder = { Text("Rahul, Dad, or +1234567890") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = CyberEmerald,
@@ -207,7 +213,7 @@ fun CarlosActionsTab(
                                 viewModel.executeQuickAction(
                                     actionType = CarlosActionType.SEND_WHATSAPP,
                                     target = whatsappRecipient,
-                                    params = mapOf("phone" to whatsappRecipient, "message" to whatsappMessage)
+                                    params = mapOf("phone" to whatsappRecipient, "recipient" to whatsappRecipient, "message" to whatsappMessage)
                                 )
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = CyberEmerald, contentColor = Color.Black),
@@ -269,7 +275,7 @@ fun CarlosActionsTab(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "Voice: \"Hey Carlos, make a call to [number]\"",
+                                text = "Voice: \"Hey Carlos, make a call to [name/number]\"",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = ElectricBlue
                             )
@@ -285,8 +291,8 @@ fun CarlosActionsTab(
                         OutlinedTextField(
                             value = callNumber,
                             onValueChange = { callNumber = it },
-                            label = { Text("Phone Number to Call") },
-                            placeholder = { Text("+1...") },
+                            label = { Text("Contact Name or Number") },
+                            placeholder = { Text("Rahul, Mom, or +1...") },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = ElectricBlue,
@@ -315,6 +321,138 @@ fun CarlosActionsTab(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Call")
                         }
+                    }
+                }
+            }
+        }
+
+        // 3. Alarm Clock Automation Card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_alarm_controls"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(NeonPurple.copy(alpha = 0.5f)))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(NeonPurple.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Alarm",
+                                tint = NeonPurple,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Alarm Automation",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Voice: \"Hey Carlos, set an alarm at 7:30 AM\"",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonPurple
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Preset Quick Alarm Buttons
+                    Text(
+                        text = "Quick Alarms:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("6:00 AM" to (6 to 0), "7:00 AM" to (7 to 0), "7:30 AM" to (7 to 30), "8:00 AM" to (8 to 0)).forEach { (label, time) ->
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.executeQuickAction(
+                                        actionType = CarlosActionType.SET_ALARM,
+                                        target = label,
+                                        params = mapOf("hour" to time.first.toString(), "minute" to time.second.toString(), "time" to label)
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                            ) {
+                                Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = alarmHour,
+                            onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) alarmHour = it },
+                            label = { Text("Hour") },
+                            placeholder = { Text("7") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(":", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        OutlinedTextField(
+                            value = alarmMinute,
+                            onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) alarmMinute = it },
+                            label = { Text("Min") },
+                            placeholder = { Text("30") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = { alarmAmPm = if (alarmAmPm == "AM") "PM" else "AM" },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(alarmAmPm, fontWeight = FontWeight.Bold, color = NeonCyan)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            var h = alarmHour.toIntOrNull() ?: 7
+                            val m = alarmMinute.toIntOrNull() ?: 0
+                            if (alarmAmPm == "PM" && h < 12) h += 12
+                            if (alarmAmPm == "AM" && h == 12) h = 0
+                            val timeStr = "$alarmHour:${String.format(java.util.Locale.US, "%02d", m)} $alarmAmPm"
+                            viewModel.executeQuickAction(
+                                actionType = CarlosActionType.SET_ALARM,
+                                target = timeStr,
+                                params = mapOf("hour" to h.toString(), "minute" to m.toString(), "message" to alarmLabel, "time" to timeStr)
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonPurple, contentColor = Color.White),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("button_set_alarm")
+                    ) {
+                        Icon(imageVector = Icons.Default.Notifications, contentDescription = "Set Alarm")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Set Custom Alarm", fontWeight = FontWeight.Bold)
                     }
                 }
             }

@@ -84,7 +84,6 @@ class CarlosWakeWordService : Service() {
         override fun run() {
             if (isServiceRunning && !isPaused) {
                 val now = System.currentTimeMillis()
-                val elapsed = now - lastAudioActivityTimestamp
 
                 // Check command awaiting timeout
                 if (isAwaitingCommand && now > awaitingCommandExpiry) {
@@ -92,14 +91,13 @@ class CarlosWakeWordService : Service() {
                     updateNotificationContent("Listening for '${prefs.wakeWord}'")
                 }
 
-                // If recognizer is not listening or received no callbacks for over 7 seconds, revive it immediately!
-                if (!isListening || elapsed > 7000L) {
-                    Log.d(TAG, "Watchdog reviving listener (isListening=$isListening, elapsed=${elapsed}ms)...")
-                    destroyRecognizer()
+                // If recognizer is null or not listening, re-arm immediately! Never kill an actively listening recognizer.
+                if (speechRecognizer == null || !isListening) {
+                    Log.d(TAG, "Watchdog re-arming listener (isListening=$isListening)...")
                     startListeningInternal()
                 }
             }
-            mainHandler.postDelayed(this, 3500L)
+            mainHandler.postDelayed(this, 3000L)
         }
     }
 
